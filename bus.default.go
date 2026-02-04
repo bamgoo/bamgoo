@@ -60,6 +60,7 @@ func (c *defaultBusConnection) Register(subject string) error {
 	if subject == "" {
 		return errBusInvalidTarget
 	}
+
 	c.mutex.Lock()
 	c.services[subject] = struct{}{}
 	c.mutex.Unlock()
