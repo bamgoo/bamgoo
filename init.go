@@ -11,8 +11,4 @@ func init() {
 	Mount(core)
 	Mount(bus)
 	Mount(trigger)
-
-	// 2. Register bus drivers
-	Register(DEFAULT, &defaultBusDriver{})
-	Register("nats", &natsBusDriver{})
 }

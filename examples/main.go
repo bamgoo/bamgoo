@@ -2,9 +2,11 @@ package main
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/bamgoo/bamgoo"
+	. "github.com/bamgoo/bamgoo/base"
+	_ "github.com/bamgoo/bamgoo/bus-default"
+	_ "github.com/bamgoo/bamgoo/bus-nats"
 )
 
 func main() {
@@ -20,14 +22,10 @@ func init() {
 	bamgoo.Register(bamgoo.START, bamgoo.Trigger{
 		Name: "启动", Desc: "启动",
 		Action: func(ctx *bamgoo.Context) {
-			start := time.Now()
+			data := ctx.Invoke("test.get", Map{"msg": "msg from examples."})
+			res := ctx.Result()
 
-			for range 100000 {
-				data := ctx.Invoke("test.get")
-				fmt.Println("start....", data)
-			}
-			end := time.Now()
-			fmt.Println("cost:", end.Sub(start))
+			fmt.Println("ssss", res, data)
 		},
 	})
 

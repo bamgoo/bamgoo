@@ -42,9 +42,21 @@ type (
 
 		Register(subject string) error
 
-		Request(*Meta, string, []byte, time.Duration) ([]byte, error)
-		Publish(*Meta, string, []byte) error
-		Enqueue(*Meta, string, []byte) error
+		Request(subject string, data []byte, timeout time.Duration) ([]byte, error)
+		Publish(subject string, data []byte) error
+		Enqueue(subject string, data []byte) error
+
+		Stats() []ServiceStats
+	}
+
+	// ServiceStats contains service statistics.
+	ServiceStats struct {
+		Name         string `json:"name"`
+		Version      string `json:"version"`
+		NumRequests  int    `json:"num_requests"`
+		NumErrors    int    `json:"num_errors"`
+		TotalLatency int64  `json:"total_latency_ms"`
+		AvgLatency   int64  `json:"avg_latency_ms"`
 	}
 
 	busModule struct {
@@ -83,15 +95,20 @@ const (
 )
 
 type (
-	requestEnvelope struct {
+	// busRequest combines metadata and payload for transmission.
+	busRequest struct {
+		Metadata
 		Name    string `json:"name"`
-		Payload Map    `json:"payload"`
+		Payload Map    `json:"payload,omitempty"`
 	}
-	responseEnvelope struct {
-		Code    int    `json:"code"`
-		State   string `json:"state"`
-		Message string `json:"message"`
-		Data    Map    `json:"data"`
+
+	// busResponse contains result with full Res info.
+	busResponse struct {
+		Code  int    `json:"code"`
+		State string `json:"state"`
+		Desc  string `json:"desc,omitempty"`
+		Time  int64  `json:"time"`
+		Data  Map    `json:"data,omitempty"`
 	}
 )
 
@@ -344,27 +361,22 @@ func (m *busModule) Request(meta *Meta, name string, value Map, timeout time.Dur
 		return nil, errorResult(errBusNotReady)
 	}
 
-	payload, err := encodeRequest(name, value)
+	data, err := encodeRequest(meta, name, value)
 	if err != nil {
 		return nil, errorResult(err)
 	}
 
 	base := m.subjectBase(prefix, name)
 	subject := m.subject("", subjectCall, base)
-	resBytes, err := conn.Request(meta, subject, payload, timeout)
+	resBytes, err := conn.Request(subject, data, timeout)
 	if err != nil {
 		return nil, errorResult(err)
 	}
 
-	data, res, err := decodeResponse(resBytes)
-	if err != nil {
-		return nil, errorResult(err)
-	}
-
-	return data, res
+	return decodeResponse(resBytes)
 }
 
-// Cast publishes a queue call.
+// Publish broadcasts an event to all subscribers.
 func (m *busModule) Publish(meta *Meta, name string, value Map) error {
 	conn, prefix := m.pick()
 
@@ -372,17 +384,17 @@ func (m *busModule) Publish(meta *Meta, name string, value Map) error {
 		return errBusNotReady
 	}
 
-	payload, err := encodeRequest(name, value)
+	data, err := encodeRequest(meta, name, value)
 	if err != nil {
 		return err
 	}
 
 	base := m.subjectBase(prefix, name)
-	subject := m.subject("", subjectQueue, base)
-	return conn.Enqueue(meta, subject, payload)
+	subject := m.subject("", subjectEvent, base)
+	return conn.Publish(subject, data)
 }
 
-// Emit publishes an event call.
+// Enqueue sends to a queue (one subscriber receives).
 func (m *busModule) Enqueue(meta *Meta, name string, value Map) error {
 	conn, prefix := m.pick()
 
@@ -390,56 +402,114 @@ func (m *busModule) Enqueue(meta *Meta, name string, value Map) error {
 		return errBusNotReady
 	}
 
-	payload, err := encodeRequest(name, value)
+	data, err := encodeRequest(meta, name, value)
 	if err != nil {
 		return err
 	}
 
 	base := m.subjectBase(prefix, name)
-	subject := m.subject("", subjectEvent, base)
-	return conn.Enqueue(meta, subject, payload)
+	subject := m.subject("", subjectQueue, base)
+	return conn.Enqueue(subject, data)
 }
 
-func encodeRequest(name string, payload Map) ([]byte, error) {
-	return json.Marshal(requestEnvelope{Name: name, Payload: payload})
+func encodeRequest(meta *Meta, name string, payload Map) ([]byte, error) {
+	req := busRequest{
+		Name:    name,
+		Payload: payload,
+	}
+	if meta != nil {
+		req.Metadata = meta.Metadata()
+	}
+	return json.Marshal(req)
 }
 
-func decodeRequest(data []byte) (string, Map, error) {
-	var env requestEnvelope
-	if err := json.Unmarshal(data, &env); err != nil {
-		return "", nil, err
+func decodeRequest(data []byte) (*Meta, string, Map, error) {
+	var req busRequest
+	if err := json.Unmarshal(data, &req); err != nil {
+		return nil, "", nil, err
 	}
-	if env.Payload == nil {
-		env.Payload = Map{}
+
+	meta := NewMeta()
+	meta.Metadata(req.Metadata)
+
+	if req.Payload == nil {
+		req.Payload = Map{}
 	}
-	return env.Name, env.Payload, nil
+	return meta, req.Name, req.Payload, nil
 }
 
 func encodeResponse(data Map, res Res) ([]byte, error) {
 	if res == nil {
 		res = OK
 	}
-	env := responseEnvelope{
-		Code:    res.Code(),
-		State:   res.State(),
-		Message: res.Error(),
-		Data:    data,
+	resp := busResponse{
+		Code:  res.Code(),
+		State: res.State(),
+		Desc:  res.Error(),
+		Time:  time.Now().UnixMilli(),
+		Data:  data,
 	}
-	return json.Marshal(env)
+	return json.Marshal(resp)
 }
 
-func decodeResponse(data []byte) (Map, Res, error) {
-	var env responseEnvelope
-	if err := json.Unmarshal(data, &env); err != nil {
-		return nil, nil, err
+func decodeResponse(data []byte) (Map, Res) {
+	var resp busResponse
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, errorResult(err)
 	}
-	state := env.State
-	if state == "" {
-		state = env.Message
+
+	res := Result(resp.Code, resp.State, resp.Desc)
+	if resp.Data == nil {
+		resp.Data = Map{}
 	}
-	res := Result(env.Code, state, env.Message)
-	if env.Data == nil {
-		env.Data = Map{}
+	return resp.Data, res
+}
+
+// HandleCall handles request/reply for a bus instance.
+func (inst *BusInstance) HandleCall(data []byte) ([]byte, error) {
+	meta, name, payload, err := decodeRequest(data)
+	if err != nil {
+		return nil, err
 	}
-	return env.Data, res, nil
+
+	body, res, _ := core.invokeLocal(meta, name, payload)
+	return encodeResponse(body, res)
+}
+
+// HandleAsync handles async execution (queue/event) for a bus instance.
+func (inst *BusInstance) HandleAsync(data []byte) error {
+	meta, name, payload, err := decodeRequest(data)
+	if err != nil {
+		return err
+	}
+
+	go core.invokeLocal(meta, name, payload)
+	return nil
+}
+
+func Publish(name string, value Map) error {
+	return bus.Publish(nil, name, value)
+}
+
+func Enqueue(name string, value Map) error {
+	return bus.Enqueue(nil, name, value)
+}
+
+// Stats returns service statistics from all connections.
+func Stats() []ServiceStats {
+	return bus.Stats()
+}
+
+func (m *busModule) Stats() []ServiceStats {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+
+	var all []ServiceStats
+	for _, conn := range m.connections {
+		stats := conn.Stats()
+		if stats != nil {
+			all = append(all, stats...)
+		}
+	}
+	return all
 }

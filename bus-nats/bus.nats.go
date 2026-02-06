@@ -1,13 +1,13 @@
-package bamgoo
+package bus_nats
 
 import (
-	"encoding/json"
 	"errors"
 	"sync"
 	"time"
 
-	. "github.com/bamgoo/bamgoo/base"
+	"github.com/bamgoo/bamgoo"
 	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/micro"
 )
 
 var (
@@ -23,10 +23,11 @@ type (
 		mutex   sync.RWMutex
 		running bool
 
-		instance *BusInstance
+		instance *bamgoo.BusInstance
 		setting  natsBusSetting
 
-		client *nats.Conn
+		client   *nats.Conn
+		services []micro.Service
 
 		subjects map[string]struct{}
 		subs     []*nats.Subscription
@@ -37,11 +38,19 @@ type (
 		Username   string
 		Password   string
 		QueueGroup string
+		Version    string
 	}
 )
 
-func (driver *natsBusDriver) Connect(inst *BusInstance) (Connection, error) {
-	setting := natsBusSetting{URL: nats.DefaultURL}
+func init() {
+	bamgoo.Register("nats", &natsBusDriver{})
+}
+
+func (driver *natsBusDriver) Connect(inst *bamgoo.BusInstance) (bamgoo.Connection, error) {
+	setting := natsBusSetting{
+		URL:     nats.DefaultURL,
+		Version: "1.0.0",
+	}
 
 	if v, ok := inst.Config.Setting["url"].(string); ok {
 		setting.URL = v
@@ -64,12 +73,16 @@ func (driver *natsBusDriver) Connect(inst *BusInstance) (Connection, error) {
 	if v, ok := inst.Config.Setting["group"].(string); ok {
 		setting.QueueGroup = v
 	}
+	if v, ok := inst.Config.Setting["version"].(string); ok {
+		setting.Version = v
+	}
 
 	return &natsBusConnection{
 		instance: inst,
 		setting:  setting,
 		subjects: make(map[string]struct{}, 0),
 		subs:     make([]*nats.Subscription, 0),
+		services: make([]micro.Service, 0),
 	}, nil
 }
 
@@ -114,30 +127,27 @@ func (c *natsBusConnection) Start() error {
 		return errNatsInvalidConnection
 	}
 
-	// Subscribe to all registered subjects
+	// Create micro services for each registered subject
 	for subject := range c.subjects {
-		callSub := "call." + subject
-		queueSub := "queue." + subject
-		eventSub := "event." + subject
-
-		// call - request/reply with queue group
-		sub, err := c.client.QueueSubscribe(callSub, c.queueGroup(callSub), func(msg *nats.Msg) {
-			resp, _ := c.handleRequest(msg.Data)
-			if msg.Reply != "" {
-				if resp != nil {
-					_ = msg.Respond(resp)
-				} else {
-					_ = msg.Respond([]byte("{}"))
-				}
-			}
+		// Create micro service for call (request/reply)
+		svc, err := micro.AddService(c.client, micro.Config{
+			Name:        subject,
+			Version:     c.setting.Version,
+			Description: "Bamgoo service: " + subject,
+			QueueGroup:  c.queueGroup(subject),
+			Endpoint: &micro.EndpointConfig{
+				Subject: "call." + subject,
+				Handler: micro.HandlerFunc(c.handleMicroRequest),
+			},
 		})
 		if err != nil {
 			return err
 		}
-		c.subs = append(c.subs, sub)
+		c.services = append(c.services, svc)
 
-		// queue - async with queue group
-		sub, err = c.client.QueueSubscribe(queueSub, c.queueGroup(queueSub), func(msg *nats.Msg) {
+		// queue - async with queue group (one subscriber receives)
+		queueSub := "queue." + subject
+		sub, err := c.client.QueueSubscribe(queueSub, c.queueGroup(queueSub), func(msg *nats.Msg) {
 			c.handleRequest(msg.Data)
 		})
 		if err != nil {
@@ -145,7 +155,8 @@ func (c *natsBusConnection) Start() error {
 		}
 		c.subs = append(c.subs, sub)
 
-		// event - broadcast to all
+		// event - broadcast to all subscribers
+		eventSub := "event." + subject
 		sub, err = c.client.Subscribe(eventSub, func(msg *nats.Msg) {
 			c.handleRequest(msg.Data)
 		})
@@ -167,16 +178,24 @@ func (c *natsBusConnection) Stop() error {
 		return errNatsNotRunning
 	}
 
+	// Stop micro services
+	for _, svc := range c.services {
+		_ = svc.Stop()
+	}
+	c.services = nil
+
+	// Unsubscribe from queue and event
 	for _, sub := range c.subs {
 		_ = sub.Unsubscribe()
 	}
 	c.subs = nil
+
 	c.running = false
 	return nil
 }
 
 // Request sends a synchronous request and waits for reply.
-func (c *natsBusConnection) Request(_ *Meta, subject string, data []byte, timeout time.Duration) ([]byte, error) {
+func (c *natsBusConnection) Request(subject string, data []byte, timeout time.Duration) ([]byte, error) {
 	if c.client == nil {
 		return nil, errNatsInvalidConnection
 	}
@@ -190,7 +209,7 @@ func (c *natsBusConnection) Request(_ *Meta, subject string, data []byte, timeou
 }
 
 // Publish broadcasts an event to all subscribers.
-func (c *natsBusConnection) Publish(_ *Meta, subject string, data []byte) error {
+func (c *natsBusConnection) Publish(subject string, data []byte) error {
 	if c.client == nil {
 		return errNatsInvalidConnection
 	}
@@ -198,11 +217,46 @@ func (c *natsBusConnection) Publish(_ *Meta, subject string, data []byte) error 
 }
 
 // Enqueue publishes to a queue (one of the subscribers will receive).
-func (c *natsBusConnection) Enqueue(_ *Meta, subject string, data []byte) error {
+func (c *natsBusConnection) Enqueue(subject string, data []byte) error {
 	if c.client == nil {
 		return errNatsInvalidConnection
 	}
 	return c.client.Publish(subject, data)
+}
+
+// Stats returns statistics for all micro services.
+func (c *natsBusConnection) Stats() []bamgoo.ServiceStats {
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
+
+	stats := make([]bamgoo.ServiceStats, 0, len(c.services))
+	for _, svc := range c.services {
+		info := svc.Info()
+		st := svc.Stats()
+
+		var numRequests, numErrors int
+		var totalLatency int64
+		for _, ep := range st.Endpoints {
+			numRequests += ep.NumRequests
+			numErrors += ep.NumErrors
+			totalLatency += int64(ep.ProcessingTime.Milliseconds())
+		}
+
+		avgLatency := int64(0)
+		if numRequests > 0 {
+			avgLatency = totalLatency / int64(numRequests)
+		}
+
+		stats = append(stats, bamgoo.ServiceStats{
+			Name:         info.Name,
+			Version:      info.Version,
+			NumRequests:  numRequests,
+			NumErrors:    numErrors,
+			TotalLatency: totalLatency,
+			AvgLatency:   avgLatency,
+		})
+	}
+	return stats
 }
 
 func (c *natsBusConnection) queueGroup(subject string) string {
@@ -212,44 +266,19 @@ func (c *natsBusConnection) queueGroup(subject string) string {
 	return subject
 }
 
-func (c *natsBusConnection) handleRequest(data []byte) ([]byte, error) {
-	name, payload, err := c.decodeRequest(data)
+// handleMicroRequest handles micro service requests.
+func (c *natsBusConnection) handleMicroRequest(req micro.Request) {
+	resp, err := c.handleRequest(req.Data())
 	if err != nil {
-		return nil, err
+		req.Error("500", err.Error(), nil)
+		return
 	}
-
-	body, res, _ := core.invokeLocal(nil, name, payload)
-	return c.encodeResponse(body, res)
+	req.Respond(resp)
 }
 
-func (c *natsBusConnection) decodeRequest(data []byte) (string, Map, error) {
-	var env struct {
-		Name    string `json:"name"`
-		Payload Map    `json:"payload"`
+func (c *natsBusConnection) handleRequest(data []byte) ([]byte, error) {
+	if c.instance == nil {
+		c.instance = &bamgoo.BusInstance{}
 	}
-	if err := json.Unmarshal(data, &env); err != nil {
-		return "", nil, err
-	}
-	if env.Payload == nil {
-		env.Payload = Map{}
-	}
-	return env.Name, env.Payload, nil
-}
-
-func (c *natsBusConnection) encodeResponse(data Map, res Res) ([]byte, error) {
-	if res == nil {
-		res = OK
-	}
-	env := struct {
-		Code    int    `json:"code"`
-		State   string `json:"state"`
-		Message string `json:"message"`
-		Data    Map    `json:"data"`
-	}{
-		Code:    res.Code(),
-		State:   res.State(),
-		Message: res.Error(),
-		Data:    data,
-	}
-	return json.Marshal(env)
+	return c.instance.HandleCall(data)
 }
