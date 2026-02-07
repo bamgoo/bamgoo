@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/bamgoo/bamgoo"
-	base "github.com/bamgoo/bamgoo/base"
+	"github.com/bamgoo/bamgoo/base"
 )
 
 const (
@@ -26,10 +26,6 @@ type (
 		drivers map[string]Driver
 	}
 )
-
-func init() {
-	bamgoo.Register(module) // register as module if needed
-}
 
 // Register dispatches config driver registrations.
 func (c *Module) Register(name string, value base.Any) {
@@ -58,6 +54,25 @@ func (c *Module) Open()           {}
 func (c *Module) Start()          {}
 func (c *Module) Stop()           {}
 func (c *Module) Close()          {}
+
+func (c *Module) LoadConfig() (base.Map, error) {
+	params, driverName, ok, err := c.Parse(os.Environ(), os.Args[1:])
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, errConfigSourceNotFound
+	}
+	if driverName == "" {
+		return nil, errConfigSourceNotFound
+	}
+
+	driver, ok := c.drivers[driverName]
+	if !ok {
+		return nil, errors.New("Unknown config driver: " + driverName)
+	}
+	return driver.Load(params)
+}
 
 // Parse reads env (BAMGOO_*) then args (--key) and returns params + driver name.
 func (c *Module) Parse(env []string, args []string) (base.Map, string, bool, error) {
@@ -92,25 +107,6 @@ func (c *Module) Parse(env []string, args []string) (base.Map, string, bool, err
 	}
 
 	return params, driver, true, nil
-}
-
-func (c *Module) LoadConfig() (base.Map, error) {
-	params, driverName, ok, err := c.Parse(os.Environ(), os.Args[1:])
-	if err != nil {
-		return nil, err
-	}
-	if !ok {
-		return nil, errConfigSourceNotFound
-	}
-	if driverName == "" {
-		return nil, errConfigSourceNotFound
-	}
-
-	driver, ok := c.drivers[driverName]
-	if !ok {
-		return nil, errors.New("Unknown config driver: " + driverName)
-	}
-	return driver.Load(params)
 }
 
 func (c *Module) parseEnv(env []string) base.Map {

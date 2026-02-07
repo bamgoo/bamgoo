@@ -1,7 +1,7 @@
 package config
 
 import (
-	base "github.com/bamgoo/bamgoo/base"
+	"github.com/bamgoo/bamgoo/base"
 )
 
 type (

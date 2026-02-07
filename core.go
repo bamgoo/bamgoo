@@ -115,7 +115,6 @@ func (e *coreModule) Close() {}
 
 func (e *coreModule) Wait() {
 	// 待处理，加入自己的退出信号
-	// 并开放 infra.Stop() 给外部调用
 	waiter := make(chan os.Signal, 1)
 	signal.Notify(waiter, os.Kill, os.Interrupt, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 	<-waiter
@@ -162,5 +161,5 @@ func (e *coreModule) invokeRemote(meta *Meta, name string, value Map) (Map, Res)
 	if meta == nil {
 		meta = NewMeta()
 	}
-	return bridge.Request(meta, name, value, defaultCallTimeout)
+	return hook.Request(meta, name, value, defaultCallTimeout)
 }

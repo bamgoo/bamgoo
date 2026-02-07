@@ -4,9 +4,9 @@ import (
 	. "github.com/bamgoo/bamgoo/base"
 )
 
-// Mount attaches a module into the bamgoo runtime.
-func Mount(mod Module) {
-	bamgoo.Mount(mod)
+// Mount attaches a module into the bamgoo runtime and returns a host.
+func Mount(mod Module) Host {
+	return bamgoo.Mount(mod)
 }
 
 // Register registers anything into mounted modules.

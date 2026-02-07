@@ -3,7 +3,6 @@ package bamgoo
 import (
 	"os"
 	"os/signal"
-	"slices"
 	"sync"
 	"syscall"
 
@@ -46,22 +45,22 @@ type bamgooRuntime struct {
 	closeStatus    bool
 }
 
-// Mount attaches a module into the core lifecycle.
-func (c *bamgooRuntime) Mount(mod Module) {
+// Mount attaches a module into the core lifecycle and returns a host for submodules.
+func (c *bamgooRuntime) Mount(mod Module) Host {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 
-	// check if the module is already mounted
-	if slices.Contains(c.modules, mod) {
-		return
-	}
-
 	// append the module to the modules list
 	c.modules = append(c.modules, mod)
+
+	return host
 }
 
 // Register dispatches registrations to all mounted modules.
 func (c *bamgooRuntime) Register(name string, value Any) {
+	// if the value is a hook, register it
+	hook.Register(name, value)
+
 	// if the value is a module, mount it
 	if mod, ok := value.(Module); ok {
 		c.Mount(mod)

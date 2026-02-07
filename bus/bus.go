@@ -25,11 +25,6 @@ var (
 	}
 )
 
-func init() {
-	bamgoo.Bridge.RegisterBus(module)
-	bamgoo.Register(module)
-}
-
 type (
 	// Handler processes incoming payload and returns reply bytes for call.
 	Handler func([]byte) ([]byte, error)
@@ -468,7 +463,7 @@ func (inst *BusInstance) HandleCall(data []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	body, res, _ := bamgoo.CoreInvokeLocal(meta, name, payload)
+	body, res, _ := host.InvokeLocal(meta, name, payload)
 	return encodeResponse(body, res)
 }
 
@@ -479,7 +474,7 @@ func (inst *BusInstance) HandleAsync(data []byte) error {
 		return err
 	}
 
-	go bamgoo.CoreInvokeLocal(meta, name, payload)
+	go host.InvokeLocal(meta, name, payload)
 	return nil
 }
 
