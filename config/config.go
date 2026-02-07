@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/bamgoo/bamgoo"
-	"github.com/bamgoo/bamgoo/base"
+	. "github.com/bamgoo/bamgoo/base"
 )
 
 const (
@@ -20,16 +20,22 @@ var (
 	errConfigSourceNotFound = errors.New("config source not found")
 )
 
-var module = &Module{drivers: map[string]Driver{}}
+var (
+	module = &Module{drivers: map[string]Driver{}}
+	host   = bamgoo.Mount(module)
+)
 
 type (
 	Module struct {
 		drivers map[string]Driver
 	}
+	Driver interface {
+		Load(Map) (Map, error)
+	}
 )
 
 // Register dispatches config driver registrations.
-func (c *Module) Register(name string, value base.Any) {
+func (c *Module) Register(name string, value Any) {
 	if drv, ok := value.(Driver); ok {
 		c.RegisterDriver(name, drv)
 	}
@@ -49,16 +55,16 @@ func (c *Module) RegisterDriver(name string, driver Driver) {
 }
 
 // Module methods (no-op for now)
-func (c *Module) Config(base.Map) {}
-func (c *Module) Setup()          {}
-func (c *Module) Open()           {}
+func (c *Module) Config(Map) {}
+func (c *Module) Setup()     {}
+func (c *Module) Open()      {}
 func (c *Module) Start() {
 	fmt.Println("config module is running.")
 }
 func (c *Module) Stop()  {}
 func (c *Module) Close() {}
 
-func (c *Module) LoadConfig() (base.Map, error) {
+func (c *Module) LoadConfig() (Map, error) {
 	params, driverName, ok, err := c.Parse()
 	if err != nil {
 		return nil, err
@@ -84,8 +90,8 @@ func (c *Module) LoadConfig() (base.Map, error) {
 }
 
 // Parse reads env (BAMGOO_*) then args (--key) and returns params + driver name.
-func (c *Module) Parse() (base.Map, string, bool, error) {
-	params := base.Map{}
+func (c *Module) Parse() (Map, string, bool, error) {
+	params := Map{}
 
 	// env first
 	for k, v := range c.parseEnv() {
@@ -122,9 +128,9 @@ func (c *Module) Parse() (base.Map, string, bool, error) {
 	return params, driver, true, nil
 }
 
-func (c *Module) parseEnv() base.Map {
+func (c *Module) parseEnv() Map {
 	envs := os.Environ()
-	params := base.Map{}
+	params := Map{}
 
 	for _, kv := range envs {
 		parts := strings.SplitN(kv, "=", 2)
@@ -142,9 +148,9 @@ func (c *Module) parseEnv() base.Map {
 	return params
 }
 
-func (c *Module) parseArgs() base.Map {
+func (c *Module) parseArgs() Map {
 	args := os.Args[1:]
-	params := base.Map{}
+	params := Map{}
 
 	for i := 0; i < len(args); i++ {
 		arg := args[i]

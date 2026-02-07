@@ -1,4 +1,4 @@
-package bus_default
+package bus
 
 import (
 	"errors"
@@ -6,8 +6,11 @@ import (
 	"time"
 
 	"github.com/bamgoo/bamgoo"
-	"github.com/bamgoo/bamgoo/bus"
 )
+
+func init() {
+	bamgoo.Register(bamgoo.DEFAULT, &defaultBusDriver{})
+}
 
 var (
 	errBusRunning       = errors.New("bus is running")
@@ -22,16 +25,12 @@ type (
 		mutex    sync.RWMutex
 		running  bool
 		services map[string]struct{}
-		instance *bus.BusInstance
+		instance *Instance
 	}
 )
 
-func init() {
-	bamgoo.Register(bamgoo.DEFAULT, &defaultBusDriver{})
-}
-
-// Connect establishes an in-memory bus.
-func (driver *defaultBusDriver) Connect(inst *bus.BusInstance) (bus.Connection, error) {
+// Connect establishes an in-memory
+func (driver *defaultBusDriver) Connect(inst *Instance) (Connection, error) {
 	return &defaultBusConnection{
 		services: make(map[string]struct{}, 0),
 		instance: inst,
@@ -44,9 +43,11 @@ func (c *defaultBusConnection) Close() error { return nil }
 func (c *defaultBusConnection) Start() error {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
+
 	if c.running {
 		return errBusRunning
 	}
+
 	c.running = true
 	return nil
 }
@@ -54,29 +55,33 @@ func (c *defaultBusConnection) Start() error {
 func (c *defaultBusConnection) Stop() error {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
+
 	if !c.running {
 		return errBusNotRunning
 	}
+
 	c.running = false
 	return nil
 }
 
 // Register registers a service subject for local handling.
 func (c *defaultBusConnection) Register(subject string) error {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
 	if subject == "" {
 		return errBusInvalidTarget
 	}
 
-	c.mutex.Lock()
 	c.services[subject] = struct{}{}
-	c.mutex.Unlock()
+
 	return nil
 }
 
 // Request handles synchronous call - for in-memory bus, directly invoke local.
 func (c *defaultBusConnection) Request(_ string, data []byte, _ time.Duration) ([]byte, error) {
 	if c.instance == nil {
-		c.instance = &bus.BusInstance{}
+		c.instance = &Instance{}
 	}
 	return c.instance.HandleCall(data)
 }
@@ -84,7 +89,7 @@ func (c *defaultBusConnection) Request(_ string, data []byte, _ time.Duration) (
 // Publish broadcasts event to all local handlers - for in-memory, invoke local.
 func (c *defaultBusConnection) Publish(_ string, data []byte) error {
 	if c.instance == nil {
-		c.instance = &bus.BusInstance{}
+		c.instance = &Instance{}
 	}
 	return c.instance.HandleAsync(data)
 }
@@ -92,12 +97,12 @@ func (c *defaultBusConnection) Publish(_ string, data []byte) error {
 // Enqueue handles queued call - for in-memory bus, directly invoke local.
 func (c *defaultBusConnection) Enqueue(_ string, data []byte) error {
 	if c.instance == nil {
-		c.instance = &bus.BusInstance{}
+		c.instance = &Instance{}
 	}
 	return c.instance.HandleAsync(data)
 }
 
-// Stats returns empty stats for in-memory bus.
+// Stats returns empty stats for in-memory
 func (c *defaultBusConnection) Stats() []bamgoo.ServiceStats {
 	return nil
 }

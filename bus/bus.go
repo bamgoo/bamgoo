@@ -19,11 +19,12 @@ var (
 var (
 	module = &busModule{
 		drivers:     make(map[string]Driver, 0),
-		configs:     make(map[string]BusConfig, 0),
+		configs:     make(map[string]Config, 0),
 		connections: make(map[string]Connection, 0),
 		weights:     make(map[string]int, 0),
 		services:    make(map[string]struct{}, 0),
 	}
+	host = bamgoo.Mount(module)
 )
 
 type (
@@ -32,7 +33,7 @@ type (
 
 	// Driver connections a bus transport.
 	Driver interface {
-		Connect(*BusInstance) (Connection, error)
+		Connect(*Instance) (Connection, error)
 	}
 
 	// Connection defines a bus transport connection.
@@ -55,7 +56,7 @@ type (
 		mutex sync.RWMutex
 
 		drivers     map[string]Driver
-		configs     map[string]BusConfig
+		configs     map[string]Config
 		connections map[string]Connection
 		weights     map[string]int
 		wrr         *util.WRR
@@ -65,19 +66,19 @@ type (
 		started bool
 	}
 
-	BusInstance struct {
+	Instance struct {
 		Name   string
-		Config BusConfig
+		Config Config
 	}
 
-	BusConfig struct {
+	Config struct {
 		Driver  string
 		Weight  int
 		Prefix  string
 		Setting base.Map
 	}
 
-	Configs map[string]BusConfig
+	Configs map[string]Config
 )
 
 const (
@@ -109,7 +110,7 @@ func (m *busModule) Register(name string, value base.Any) {
 	switch v := value.(type) {
 	case Driver:
 		m.RegisterDriver(name, v)
-	case BusConfig:
+	case Config:
 		m.RegisterConfig(name, v)
 	case Configs:
 		m.RegisterConfigs(v)
@@ -137,7 +138,7 @@ func (m *busModule) RegisterDriver(name string, driver Driver) {
 
 // RegisterConfig registers a named bus config.
 // If name is empty, it uses DEFAULT.
-func (m *busModule) RegisterConfig(name string, cfg BusConfig) {
+func (m *busModule) RegisterConfig(name string, cfg Config) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -196,7 +197,7 @@ func (m *busModule) Setup() {
 	}
 
 	if len(m.configs) == 0 {
-		m.configs[bamgoo.DEFAULT] = BusConfig{Driver: bamgoo.DEFAULT, Weight: 1}
+		m.configs[bamgoo.DEFAULT] = Config{Driver: bamgoo.DEFAULT, Weight: 1}
 	}
 
 	// normalize configs
@@ -237,7 +238,7 @@ func (m *busModule) Open() {
 			cfg.Weight = 1
 		}
 
-		inst := &BusInstance{Name: name, Config: cfg}
+		inst := &Instance{Name: name, Config: cfg}
 		conn, err := driver.Connect(inst)
 		if err != nil {
 			panic("Failed to connect to bus: " + err.Error())
@@ -461,7 +462,7 @@ func decodeResponse(data []byte) (base.Map, base.Res) {
 }
 
 // HandleCall handles request/reply for a bus instance.
-func (inst *BusInstance) HandleCall(data []byte) ([]byte, error) {
+func (inst *Instance) HandleCall(data []byte) ([]byte, error) {
 	meta, name, payload, err := decodeRequest(data)
 	if err != nil {
 		return nil, err
@@ -472,7 +473,7 @@ func (inst *BusInstance) HandleCall(data []byte) ([]byte, error) {
 }
 
 // HandleAsync handles async execution (queue/event) for a bus instance.
-func (inst *BusInstance) HandleAsync(data []byte) error {
+func (inst *Instance) HandleAsync(data []byte) error {
 	meta, name, payload, err := decodeRequest(data)
 	if err != nil {
 		return err

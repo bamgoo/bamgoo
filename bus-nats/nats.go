@@ -24,7 +24,7 @@ type (
 		mutex   sync.RWMutex
 		running bool
 
-		instance *bus.BusInstance
+		instance *bus.Instance
 		setting  natsBusSetting
 
 		client   *nats.Conn
@@ -47,7 +47,7 @@ func init() {
 	bamgoo.Register("nats", &natsBusDriver{})
 }
 
-func (driver *natsBusDriver) Connect(inst *bus.BusInstance) (bus.Connection, error) {
+func (driver *natsBusDriver) Connect(inst *bus.Instance) (bus.Connection, error) {
 	setting := natsBusSetting{
 		URL:     nats.DefaultURL,
 		Version: "1.0.0",
@@ -279,7 +279,7 @@ func (c *natsBusConnection) handleMicroRequest(req micro.Request) {
 
 func (c *natsBusConnection) handleRequest(data []byte) ([]byte, error) {
 	if c.instance == nil {
-		c.instance = &bus.BusInstance{}
+		c.instance = &bus.Instance{}
 	}
 	return c.instance.HandleCall(data)
 }
