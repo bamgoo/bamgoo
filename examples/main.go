@@ -7,7 +7,6 @@ import (
 	_ "github.com/bamgoo/bamgoo/builtin"
 
 	"github.com/bamgoo/bamgoo"
-	"github.com/bamgoo/bamgoo/bus"
 )
 
 func main() {
@@ -15,11 +14,6 @@ func main() {
 }
 
 func init() {
-
-	bamgoo.Register("nats", bus.BusConfig{
-		Driver: "nats",
-	})
-
 	bamgoo.Register(bamgoo.START, bamgoo.Trigger{
 		Name: "启动", Desc: "启动",
 		Action: func(ctx *bamgoo.Context) {

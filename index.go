@@ -29,12 +29,14 @@ func Register(args ...Any) {
 
 // Ready initializes and connects modules without starting them.
 func Ready() {
+	bamgoo.Load()
 	bamgoo.Setup()
 	bamgoo.Open()
 }
 
 // Go starts the full lifecycle and blocks until stop.
 func Go() {
+	bamgoo.Load()
 	bamgoo.Setup()
 	bamgoo.Open()
 	bamgoo.Start()

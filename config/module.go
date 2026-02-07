@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -51,15 +52,20 @@ func (c *Module) RegisterDriver(name string, driver Driver) {
 func (c *Module) Config(base.Map) {}
 func (c *Module) Setup()          {}
 func (c *Module) Open()           {}
-func (c *Module) Start()          {}
-func (c *Module) Stop()           {}
-func (c *Module) Close()          {}
+func (c *Module) Start() {
+	fmt.Println("config module is running.")
+}
+func (c *Module) Stop()  {}
+func (c *Module) Close() {}
 
 func (c *Module) LoadConfig() (base.Map, error) {
-	params, driverName, ok, err := c.Parse(os.Environ(), os.Args[1:])
+	params, driverName, ok, err := c.Parse()
 	if err != nil {
 		return nil, err
 	}
+
+	fmt.Println("LoadConfig", ok, driverName, params)
+
 	if !ok {
 		return nil, errConfigSourceNotFound
 	}
@@ -68,22 +74,25 @@ func (c *Module) LoadConfig() (base.Map, error) {
 	}
 
 	driver, ok := c.drivers[driverName]
+	fmt.Println("ddd", ok, c.drivers)
 	if !ok {
 		return nil, errors.New("Unknown config driver: " + driverName)
 	}
-	return driver.Load(params)
+	cfg, err := driver.Load(params)
+	fmt.Println("load", err, cfg)
+	return cfg, err
 }
 
 // Parse reads env (BAMGOO_*) then args (--key) and returns params + driver name.
-func (c *Module) Parse(env []string, args []string) (base.Map, string, bool, error) {
+func (c *Module) Parse() (base.Map, string, bool, error) {
 	params := base.Map{}
 
 	// env first
-	for k, v := range c.parseEnv(env) {
+	for k, v := range c.parseEnv() {
 		params[k] = v
 	}
 	// args override env
-	for k, v := range c.parseArgs(args) {
+	for k, v := range c.parseArgs() {
 		params[k] = v
 	}
 
@@ -102,16 +111,22 @@ func (c *Module) Parse(env []string, args []string) (base.Map, string, bool, err
 		if file == "" {
 			return nil, "", false, nil
 		}
-		params["file"] = file
+
 		driver = "file"
+
+		params["file"] = file
+		params["path"] = file
+		params["config"] = file
 	}
 
 	return params, driver, true, nil
 }
 
-func (c *Module) parseEnv(env []string) base.Map {
+func (c *Module) parseEnv() base.Map {
+	envs := os.Environ()
 	params := base.Map{}
-	for _, kv := range env {
+
+	for _, kv := range envs {
 		parts := strings.SplitN(kv, "=", 2)
 		if len(parts) != 2 {
 			continue
@@ -127,8 +142,10 @@ func (c *Module) parseEnv(env []string) base.Map {
 	return params
 }
 
-func (c *Module) parseArgs(args []string) base.Map {
+func (c *Module) parseArgs() base.Map {
+	args := os.Args[1:]
 	params := base.Map{}
+
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		if !strings.HasPrefix(arg, "--") {

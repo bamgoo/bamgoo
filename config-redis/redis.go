@@ -87,3 +87,11 @@ func decodeConfig(data []byte, format string) (base.Map, error) {
 		return nil, errors.New("Unknown config format: " + format)
 	}
 }
+
+func detectFormat(data []byte) string {
+	s := strings.TrimSpace(string(data))
+	if strings.HasPrefix(s, "{") || strings.HasPrefix(s, "[") {
+		return "json"
+	}
+	return "toml"
+}

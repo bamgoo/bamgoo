@@ -3,6 +3,7 @@ package bus
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -276,6 +277,9 @@ func (m *busModule) Start() {
 	for _, conn := range m.connections {
 		_ = conn.Start()
 	}
+
+	fmt.Println("bus module is running.")
+
 	m.started = true
 }
 

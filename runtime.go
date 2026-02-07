@@ -3,6 +3,7 @@ package bamgoo
 import (
 	"os"
 	"os/signal"
+	"slices"
 	"sync"
 	"syscall"
 
@@ -38,6 +39,7 @@ type bamgooRuntime struct {
 	setting Map
 
 	overrideStatus bool
+	loadStatus     bool
 	configStatus   bool
 	setupStatus    bool
 	openStatus     bool
@@ -50,6 +52,13 @@ func (c *bamgooRuntime) Mount(mod Module) Host {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 
+	if slices.Contains(c.modules, mod) {
+		panic("模块已经挂载了.")
+	}
+
+	// if the value is a hook, register it
+	hook.Attach(mod)
+
 	// append the module to the modules list
 	c.modules = append(c.modules, mod)
 
@@ -58,9 +67,6 @@ func (c *bamgooRuntime) Mount(mod Module) Host {
 
 // Register dispatches registrations to all mounted modules.
 func (c *bamgooRuntime) Register(name string, value Any) {
-	// if the value is a hook, register it
-	hook.Register(name, value)
-
 	// if the value is a module, mount it
 	if mod, ok := value.(Module); ok {
 		c.Mount(mod)
@@ -110,6 +116,21 @@ func (c *bamgooRuntime) runtimeConfig(cfg Map) {
 	}
 
 	c.configStatus = true
+}
+
+// Load 加载配置
+func (c *bamgooRuntime) Load() {
+	if c.loadStatus {
+		return
+	}
+
+	//从配置模块加载配置
+	cfg, err := hook.LoadConfig()
+	if err == nil {
+		c.Config(cfg)
+	}
+
+	c.loadStatus = true
 }
 
 // Config applies config to core and all modules.

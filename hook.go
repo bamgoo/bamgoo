@@ -36,39 +36,33 @@ type (
 	}
 )
 
-// Register dispatches Module.Register based on type.
-func (h *bamgooHook) Register(name string, value base.Any) {
+// Attach dispatches Module.Attach based on type.
+func (h *bamgooHook) Attach(value base.Any) {
 	switch v := value.(type) {
 	case BusHook:
-		h.RegisterBus(v)
+		h.AttachBus(v)
 	case ConfigHook:
-		h.RegisterConfig(v)
+		h.AttachConfig(v)
 	}
 }
 
-func (h *bamgooHook) RegisterBus(hook BusHook) {
+func (h *bamgooHook) AttachBus(hook BusHook) {
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
 
 	if hook == nil {
 		panic("Invalid bus hook")
 	}
-	if h.bus != nil {
-		panic("Bus hook already registered")
-	}
 
 	h.bus = hook
 }
 
-func (h *bamgooHook) RegisterConfig(hook ConfigHook) {
+func (h *bamgooHook) AttachConfig(hook ConfigHook) {
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
 
 	if hook == nil {
 		panic("Invalid config hook")
-	}
-	if h.config != nil {
-		panic("Config hook already registered")
 	}
 
 	h.config = hook

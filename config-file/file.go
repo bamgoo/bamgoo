@@ -7,24 +7,28 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/bamgoo/bamgoo"
-	base "github.com/bamgoo/bamgoo/base"
 	"github.com/pelletier/go-toml/v2"
+
+	"github.com/bamgoo/bamgoo"
+	. "github.com/bamgoo/bamgoo/base"
 )
 
-type fileConfigDriver struct{}
+type FileConfigDriver struct{}
 
 func init() {
-	bamgoo.Register("file", &fileConfigDriver{})
+	bamgoo.Register("file", &FileConfigDriver{})
 }
 
-func (d *fileConfigDriver) Load(params base.Map) (base.Map, error) {
-	file, _ := params["file"].(string)
-	if file == "" {
-		file, _ = params["path"].(string)
+func (d *FileConfigDriver) Load(params Map) (Map, error) {
+	file := "config.toml"
+	if vv, ok := params["file"].(string); ok {
+		file = vv
 	}
-	if file == "" {
-		return nil, errors.New("Missing config file")
+	if vv, ok := params["path"].(string); ok {
+		file = vv
+	}
+	if vv, ok := params["config"].(string); ok {
+		file = vv
 	}
 
 	data, err := os.ReadFile(file)
@@ -49,8 +53,8 @@ func (d *fileConfigDriver) Load(params base.Map) (base.Map, error) {
 	return decodeConfig(data, format)
 }
 
-func decodeConfig(data []byte, format string) (base.Map, error) {
-	var out base.Map
+func decodeConfig(data []byte, format string) (Map, error) {
+	var out Map
 	switch strings.ToLower(format) {
 	case "json":
 		if err := json.Unmarshal(data, &out); err != nil {
@@ -65,4 +69,12 @@ func decodeConfig(data []byte, format string) (base.Map, error) {
 	default:
 		return nil, errors.New("Unknown config format: " + format)
 	}
+}
+
+func detectFormat(data []byte) string {
+	s := strings.TrimSpace(string(data))
+	if strings.HasPrefix(s, "{") || strings.HasPrefix(s, "[") {
+		return "json"
+	}
+	return "toml"
 }
