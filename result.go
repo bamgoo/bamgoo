@@ -96,6 +96,11 @@ func errorResult(err error) Res {
 	return &result{-1, err.Error(), []Any{}, false}
 }
 
+// ErrorResult exposes error-to-Res conversion.
+func ErrorResult(err error) Res {
+	return errorResult(err)
+}
+
 // Result 定义一个result，并自动注册state
 // state 表示状态key
 // text 表示状态对应的默认文案

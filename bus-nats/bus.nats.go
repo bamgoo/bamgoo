@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/bamgoo/bamgoo"
+	"github.com/bamgoo/bamgoo/bus"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/micro"
 )
@@ -23,7 +24,7 @@ type (
 		mutex   sync.RWMutex
 		running bool
 
-		instance *bamgoo.BusInstance
+		instance *bus.BusInstance
 		setting  natsBusSetting
 
 		client   *nats.Conn
@@ -46,7 +47,7 @@ func init() {
 	bamgoo.Register("nats", &natsBusDriver{})
 }
 
-func (driver *natsBusDriver) Connect(inst *bamgoo.BusInstance) (bamgoo.Connection, error) {
+func (driver *natsBusDriver) Connect(inst *bus.BusInstance) (bus.Connection, error) {
 	setting := natsBusSetting{
 		URL:     nats.DefaultURL,
 		Version: "1.0.0",
@@ -278,7 +279,7 @@ func (c *natsBusConnection) handleMicroRequest(req micro.Request) {
 
 func (c *natsBusConnection) handleRequest(data []byte) ([]byte, error) {
 	if c.instance == nil {
-		c.instance = &bamgoo.BusInstance{}
+		c.instance = &bus.BusInstance{}
 	}
 	return c.instance.HandleCall(data)
 }

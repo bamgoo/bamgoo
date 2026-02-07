@@ -1,4 +1,4 @@
-package bamgoo
+package bus
 
 import (
 	"encoding/json"
@@ -6,7 +6,8 @@ import (
 	"sync"
 	"time"
 
-	. "github.com/bamgoo/bamgoo/base"
+	"github.com/bamgoo/bamgoo"
+	base "github.com/bamgoo/bamgoo/base"
 	"github.com/bamgoo/bamgoo/util"
 )
 
@@ -15,7 +16,7 @@ var (
 )
 
 var (
-	bus = &busModule{
+	module = &busModule{
 		drivers:     make(map[string]Driver, 0),
 		configs:     make(map[string]BusConfig, 0),
 		connections: make(map[string]Connection, 0),
@@ -23,6 +24,11 @@ var (
 		services:    make(map[string]struct{}, 0),
 	}
 )
+
+func init() {
+	bamgoo.Bridge.RegisterBus(module)
+	bamgoo.Register(module)
+}
 
 type (
 	// Handler processes incoming payload and returns reply bytes for call.
@@ -33,7 +39,7 @@ type (
 		Connect(*BusInstance) (Connection, error)
 	}
 
-	// Connect defines a bus transport connection.
+	// Connection defines a bus transport connection.
 	Connection interface {
 		Open() error
 		Close() error
@@ -46,17 +52,7 @@ type (
 		Publish(subject string, data []byte) error
 		Enqueue(subject string, data []byte) error
 
-		Stats() []ServiceStats
-	}
-
-	// ServiceStats contains service statistics.
-	ServiceStats struct {
-		Name         string `json:"name"`
-		Version      string `json:"version"`
-		NumRequests  int    `json:"num_requests"`
-		NumErrors    int    `json:"num_errors"`
-		TotalLatency int64  `json:"total_latency_ms"`
-		AvgLatency   int64  `json:"avg_latency_ms"`
+		Stats() []bamgoo.ServiceStats
 	}
 
 	busModule struct {
@@ -82,7 +78,7 @@ type (
 		Driver  string
 		Weight  int
 		Prefix  string
-		Setting Map
+		Setting base.Map
 	}
 
 	Configs map[string]BusConfig
@@ -97,9 +93,9 @@ const (
 type (
 	// busRequest combines metadata and payload for transmission.
 	busRequest struct {
-		Metadata
-		Name    string `json:"name"`
-		Payload Map    `json:"payload,omitempty"`
+		bamgoo.Metadata
+		Name    string   `json:"name"`
+		Payload base.Map `json:"payload,omitempty"`
 	}
 
 	// busResponse contains result with full Res info.
@@ -108,12 +104,12 @@ type (
 		State string `json:"state"`
 		Desc  string `json:"desc,omitempty"`
 		Time  int64  `json:"time"`
-		Data  Map    `json:"data,omitempty"`
+		Data  base.Map
 	}
 )
 
 // Register dispatches registrations.
-func (m *busModule) Register(name string, value Any) {
+func (m *busModule) Register(name string, value base.Any) {
 	switch v := value.(type) {
 	case Driver:
 		m.RegisterDriver(name, v)
@@ -121,7 +117,7 @@ func (m *busModule) Register(name string, value Any) {
 		m.RegisterConfig(name, v)
 	case Configs:
 		m.RegisterConfigs(v)
-	case Service:
+	case bamgoo.Service:
 		m.RegisterService(name)
 	}
 }
@@ -132,7 +128,7 @@ func (m *busModule) RegisterDriver(name string, driver Driver) {
 	defer m.mutex.Unlock()
 
 	if name == "" {
-		name = DEFAULT
+		name = bamgoo.DEFAULT
 	}
 	if driver == nil {
 		panic("Invalid bus driver: " + name)
@@ -154,7 +150,7 @@ func (m *busModule) RegisterConfig(name string, cfg BusConfig) {
 	}
 
 	if name == "" {
-		name = DEFAULT
+		name = bamgoo.DEFAULT
 	}
 	if _, ok := m.configs[name]; ok {
 		panic("Bus config already registered: " + name)
@@ -173,7 +169,7 @@ func (m *busModule) RegisterConfigs(configs Configs) {
 
 	for name, cfg := range configs {
 		if name == "" {
-			name = DEFAULT
+			name = bamgoo.DEFAULT
 		}
 		if _, ok := m.configs[name]; ok {
 			panic("Bus config already registered: " + name)
@@ -192,7 +188,7 @@ func (m *busModule) RegisterService(name string) {
 	m.mutex.Unlock()
 }
 
-func (m *busModule) Config(_ Map) {}
+func (m *busModule) Config(base.Map) {}
 
 // Setup initializes defaults.
 func (m *busModule) Setup() {
@@ -204,16 +200,16 @@ func (m *busModule) Setup() {
 	}
 
 	if len(m.configs) == 0 {
-		m.configs[DEFAULT] = BusConfig{Driver: DEFAULT, Weight: 1}
+		m.configs[bamgoo.DEFAULT] = BusConfig{Driver: bamgoo.DEFAULT, Weight: 1}
 	}
 
 	// normalize configs
 	for name, cfg := range m.configs {
 		if name == "" {
-			name = DEFAULT
+			name = bamgoo.DEFAULT
 		}
 		if cfg.Driver == "" {
-			cfg.Driver = DEFAULT
+			cfg.Driver = bamgoo.DEFAULT
 		}
 		if cfg.Weight == 0 {
 			cfg.Weight = 1
@@ -354,30 +350,30 @@ func (m *busModule) pick() (Connection, string) {
 }
 
 // Request sends a request and waits for reply.
-func (m *busModule) Request(meta *Meta, name string, value Map, timeout time.Duration) (Map, Res) {
+func (m *busModule) Request(meta *bamgoo.Meta, name string, value base.Map, timeout time.Duration) (base.Map, base.Res) {
 	conn, prefix := m.pick()
 
 	if conn == nil {
-		return nil, errorResult(errBusNotReady)
+		return nil, bamgoo.ErrorResult(errBusNotReady)
 	}
 
 	data, err := encodeRequest(meta, name, value)
 	if err != nil {
-		return nil, errorResult(err)
+		return nil, bamgoo.ErrorResult(err)
 	}
 
-	base := m.subjectBase(prefix, name)
-	subject := m.subject("", subjectCall, base)
+	baseName := m.subjectBase(prefix, name)
+	subject := m.subject("", subjectCall, baseName)
 	resBytes, err := conn.Request(subject, data, timeout)
 	if err != nil {
-		return nil, errorResult(err)
+		return nil, bamgoo.ErrorResult(err)
 	}
 
 	return decodeResponse(resBytes)
 }
 
 // Publish broadcasts an event to all subscribers.
-func (m *busModule) Publish(meta *Meta, name string, value Map) error {
+func (m *busModule) Publish(meta *bamgoo.Meta, name string, value base.Map) error {
 	conn, prefix := m.pick()
 
 	if conn == nil {
@@ -389,13 +385,13 @@ func (m *busModule) Publish(meta *Meta, name string, value Map) error {
 		return err
 	}
 
-	base := m.subjectBase(prefix, name)
-	subject := m.subject("", subjectEvent, base)
+	baseName := m.subjectBase(prefix, name)
+	subject := m.subject("", subjectEvent, baseName)
 	return conn.Publish(subject, data)
 }
 
 // Enqueue sends to a queue (one subscriber receives).
-func (m *busModule) Enqueue(meta *Meta, name string, value Map) error {
+func (m *busModule) Enqueue(meta *bamgoo.Meta, name string, value base.Map) error {
 	conn, prefix := m.pick()
 
 	if conn == nil {
@@ -407,12 +403,12 @@ func (m *busModule) Enqueue(meta *Meta, name string, value Map) error {
 		return err
 	}
 
-	base := m.subjectBase(prefix, name)
-	subject := m.subject("", subjectQueue, base)
+	baseName := m.subjectBase(prefix, name)
+	subject := m.subject("", subjectQueue, baseName)
 	return conn.Enqueue(subject, data)
 }
 
-func encodeRequest(meta *Meta, name string, payload Map) ([]byte, error) {
+func encodeRequest(meta *bamgoo.Meta, name string, payload base.Map) ([]byte, error) {
 	req := busRequest{
 		Name:    name,
 		Payload: payload,
@@ -423,24 +419,24 @@ func encodeRequest(meta *Meta, name string, payload Map) ([]byte, error) {
 	return json.Marshal(req)
 }
 
-func decodeRequest(data []byte) (*Meta, string, Map, error) {
+func decodeRequest(data []byte) (*bamgoo.Meta, string, base.Map, error) {
 	var req busRequest
 	if err := json.Unmarshal(data, &req); err != nil {
 		return nil, "", nil, err
 	}
 
-	meta := NewMeta()
+	meta := bamgoo.NewMeta()
 	meta.Metadata(req.Metadata)
 
 	if req.Payload == nil {
-		req.Payload = Map{}
+		req.Payload = base.Map{}
 	}
 	return meta, req.Name, req.Payload, nil
 }
 
-func encodeResponse(data Map, res Res) ([]byte, error) {
+func encodeResponse(data base.Map, res base.Res) ([]byte, error) {
 	if res == nil {
-		res = OK
+		res = bamgoo.OK
 	}
 	resp := busResponse{
 		Code:  res.Code(),
@@ -452,15 +448,15 @@ func encodeResponse(data Map, res Res) ([]byte, error) {
 	return json.Marshal(resp)
 }
 
-func decodeResponse(data []byte) (Map, Res) {
+func decodeResponse(data []byte) (base.Map, base.Res) {
 	var resp busResponse
 	if err := json.Unmarshal(data, &resp); err != nil {
-		return nil, errorResult(err)
+		return nil, bamgoo.ErrorResult(err)
 	}
 
-	res := Result(resp.Code, resp.State, resp.Desc)
+	res := bamgoo.Result(resp.Code, resp.State, resp.Desc)
 	if resp.Data == nil {
-		resp.Data = Map{}
+		resp.Data = base.Map{}
 	}
 	return resp.Data, res
 }
@@ -472,7 +468,7 @@ func (inst *BusInstance) HandleCall(data []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	body, res, _ := core.invokeLocal(meta, name, payload)
+	body, res, _ := bamgoo.CoreInvokeLocal(meta, name, payload)
 	return encodeResponse(body, res)
 }
 
@@ -483,28 +479,16 @@ func (inst *BusInstance) HandleAsync(data []byte) error {
 		return err
 	}
 
-	go core.invokeLocal(meta, name, payload)
+	go bamgoo.CoreInvokeLocal(meta, name, payload)
 	return nil
 }
 
-func Publish(name string, value Map) error {
-	return bus.Publish(nil, name, value)
-}
-
-func Enqueue(name string, value Map) error {
-	return bus.Enqueue(nil, name, value)
-}
-
 // Stats returns service statistics from all connections.
-func Stats() []ServiceStats {
-	return bus.Stats()
-}
-
-func (m *busModule) Stats() []ServiceStats {
+func (m *busModule) Stats() []bamgoo.ServiceStats {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 
-	var all []ServiceStats
+	var all []bamgoo.ServiceStats
 	for _, conn := range m.connections {
 		stats := conn.Stats()
 		if stats != nil {

@@ -10,9 +10,11 @@ import (
 	. "github.com/bamgoo/bamgoo/base"
 )
 
-const (
-	BAMGOO = "bamgoo"
-)
+// bamgoo is the bamgoo runtime instance that drives module lifecycle.
+var bamgoo = &bamgooRuntime{
+	modules: make([]Module, 0),
+	name:    BAMGOO, role: BAMGOO, node: "", version: "", setting: Map{},
+}
 
 type (
 	Module interface {
@@ -26,20 +28,14 @@ type (
 	}
 )
 
-// bamgoo is the bamgoo runtime instance that drives module lifecycle.
-var bamgoo = &bamgooRuntime{
-	config: bamgooConfig{
-		name: BAMGOO, role: BAMGOO, node: "", version: "",
-		secret: BAMGOO, salt: BAMGOO,
-	},
-	setting: Map{},
-	modules: make([]Module, 0),
-}
-
 type bamgooRuntime struct {
 	mutex   sync.RWMutex
 	modules []Module
-	config  bamgooConfig
+
+	name    string
+	role    string
+	node    string
+	version string
 	setting Map
 
 	overrideStatus bool
@@ -48,16 +44,6 @@ type bamgooRuntime struct {
 	openStatus     bool
 	startStatus    bool
 	closeStatus    bool
-}
-
-type bamgooConfig struct {
-	name    string
-	role    string
-	node    string
-	version string
-	secret  string
-	salt    string
-	setting Map
 }
 
 // Mount attaches a module into the core lifecycle.
@@ -94,7 +80,7 @@ func (c *bamgooRuntime) Register(name string, value Any) {
 }
 
 // Config updates core config and broadcasts to modules.
-func (c *bamgooRuntime) Config(cfg Map) {
+func (c *bamgooRuntime) runtimeConfig(cfg Map) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 
@@ -107,33 +93,36 @@ func (c *bamgooRuntime) Config(cfg Map) {
 	}
 
 	if name, ok := cfg["name"].(string); ok && name != "" {
-		c.config.name = name
-		if c.config.secret == "" {
-			c.config.secret = name
-		}
+		c.name = name
 	}
 	if role, ok := cfg["role"].(string); ok {
-		c.config.role = role
+		c.role = role
 	}
 	if node, ok := cfg["node"].(string); ok && node != "" {
-		c.config.node = node
+		c.node = node
 	}
 	if version, ok := cfg["version"].(string); ok {
-		c.config.version = version
-	}
-	if secret, ok := cfg["secret"].(string); ok && secret != "" {
-		c.config.secret = secret
-	}
-	if salt, ok := cfg["salt"].(string); ok && salt != "" {
-		c.config.salt = salt
+		c.version = version
 	}
 	if setting, ok := cfg["setting"].(Map); ok {
 		for k, v := range setting {
-			c.config.setting[k] = v
+			c.setting[k] = v
 		}
 	}
 
 	c.configStatus = true
+}
+
+// Config applies config to core and all modules.
+func (c *bamgooRuntime) Config(cfg Map) {
+	if cfg == nil {
+		cfg = Map{}
+	}
+
+	c.runtimeConfig(cfg)
+	for _, mod := range c.modules {
+		mod.Config(cfg)
+	}
 }
 
 // Setup initializes all modules.
@@ -187,6 +176,7 @@ func (c *bamgooRuntime) Close() {
 	if c.closeStatus {
 		return
 	}
+	// close the modules in reverse order
 	for i := len(c.modules) - 1; i >= 0; i-- {
 		c.modules[i].Close()
 	}

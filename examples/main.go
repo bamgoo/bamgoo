@@ -5,8 +5,13 @@ import (
 
 	"github.com/bamgoo/bamgoo"
 	. "github.com/bamgoo/bamgoo/base"
+	"github.com/bamgoo/bamgoo/bus"
+	_ "github.com/bamgoo/bamgoo/bus"
 	_ "github.com/bamgoo/bamgoo/bus-default"
 	_ "github.com/bamgoo/bamgoo/bus-nats"
+	_ "github.com/bamgoo/bamgoo/config"
+	_ "github.com/bamgoo/bamgoo/config-file"
+	_ "github.com/bamgoo/bamgoo/config-redis"
 )
 
 func main() {
@@ -15,7 +20,7 @@ func main() {
 
 func init() {
 
-	bamgoo.Register("nats", bamgoo.BusConfig{
+	bamgoo.Register("nats", bus.BusConfig{
 		Driver: "nats",
 	})
 

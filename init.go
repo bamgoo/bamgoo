@@ -8,7 +8,7 @@ package bamgoo
 // 4. drivers - must be registered after their modules are mounted
 func init() {
 	// 1. Mount core modules in order
+	Mount(bridge)
 	Mount(core)
-	Mount(bus)
 	Mount(trigger)
 }

@@ -11,11 +11,11 @@ import (
 	. "github.com/bamgoo/bamgoo/base"
 )
 
+const defaultCallTimeout = 5 * time.Second
+
 var core = &coreModule{
 	entries: make(map[string]coreEntry, 0),
 }
-
-const defaultCallTimeout = 5 * time.Second
 
 type (
 	coreModule struct {
@@ -162,5 +162,5 @@ func (e *coreModule) invokeRemote(meta *Meta, name string, value Map) (Map, Res)
 	if meta == nil {
 		meta = NewMeta()
 	}
-	return bus.Request(meta, name, value, defaultCallTimeout)
+	return bridge.Request(meta, name, value, defaultCallTimeout)
 }

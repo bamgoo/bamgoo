@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/bamgoo/bamgoo"
+	"github.com/bamgoo/bamgoo/bus"
 )
 
 var (
@@ -21,7 +22,7 @@ type (
 		mutex    sync.RWMutex
 		running  bool
 		services map[string]struct{}
-		instance *bamgoo.BusInstance
+		instance *bus.BusInstance
 	}
 )
 
@@ -30,7 +31,7 @@ func init() {
 }
 
 // Connect establishes an in-memory bus.
-func (driver *defaultBusDriver) Connect(inst *bamgoo.BusInstance) (bamgoo.Connection, error) {
+func (driver *defaultBusDriver) Connect(inst *bus.BusInstance) (bus.Connection, error) {
 	return &defaultBusConnection{
 		services: make(map[string]struct{}, 0),
 		instance: inst,
@@ -75,7 +76,7 @@ func (c *defaultBusConnection) Register(subject string) error {
 // Request handles synchronous call - for in-memory bus, directly invoke local.
 func (c *defaultBusConnection) Request(_ string, data []byte, _ time.Duration) ([]byte, error) {
 	if c.instance == nil {
-		c.instance = &bamgoo.BusInstance{}
+		c.instance = &bus.BusInstance{}
 	}
 	return c.instance.HandleCall(data)
 }
@@ -83,7 +84,7 @@ func (c *defaultBusConnection) Request(_ string, data []byte, _ time.Duration) (
 // Publish broadcasts event to all local handlers - for in-memory, invoke local.
 func (c *defaultBusConnection) Publish(_ string, data []byte) error {
 	if c.instance == nil {
-		c.instance = &bamgoo.BusInstance{}
+		c.instance = &bus.BusInstance{}
 	}
 	return c.instance.HandleAsync(data)
 }
@@ -91,7 +92,7 @@ func (c *defaultBusConnection) Publish(_ string, data []byte) error {
 // Enqueue handles queued call - for in-memory bus, directly invoke local.
 func (c *defaultBusConnection) Enqueue(_ string, data []byte) error {
 	if c.instance == nil {
-		c.instance = &bamgoo.BusInstance{}
+		c.instance = &bus.BusInstance{}
 	}
 	return c.instance.HandleAsync(data)
 }

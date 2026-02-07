@@ -27,11 +27,6 @@ func Register(args ...Any) {
 	}
 }
 
-// Close releases resources for all modules.
-func Close() {
-	bamgoo.Close()
-}
-
 // Ready initializes and connects modules without starting them.
 func Ready() {
 	bamgoo.Setup()
