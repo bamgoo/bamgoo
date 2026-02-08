@@ -8,7 +8,7 @@ import (
 	"syscall"
 	"time"
 
-	. "github.com/bamgoo/bamgoo/base"
+	. "github.com/bamgoo/base"
 )
 
 const defaultCallTimeout = 5 * time.Second

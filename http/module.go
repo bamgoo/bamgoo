@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/bamgoo/bamgoo"
-	. "github.com/bamgoo/bamgoo/base"
+	. "github.com/bamgoo/base"
 )
 
 func init() {

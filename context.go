@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	. "github.com/bamgoo/bamgoo/base"
+	. "github.com/bamgoo/base"
 )
 
 type (

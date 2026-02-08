@@ -7,7 +7,7 @@ import (
 	"sync"
 	"syscall"
 
-	. "github.com/bamgoo/bamgoo/base"
+	. "github.com/bamgoo/base"
 )
 
 // bamgoo is the bamgoo runtime instance that drives module lifecycle.

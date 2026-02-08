@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	base "github.com/bamgoo/bamgoo/base"
+	base "github.com/bamgoo/base"
 )
 
 var (

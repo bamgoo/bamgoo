@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	. "github.com/bamgoo/bamgoo/base"
+	. "github.com/bamgoo/base"
 )
 
 var (

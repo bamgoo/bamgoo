@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/bamgoo/bamgoo"
-	. "github.com/bamgoo/bamgoo/base"
+	. "github.com/bamgoo/base"
 )
 
 func (inst *Instance) newContext() *Context {

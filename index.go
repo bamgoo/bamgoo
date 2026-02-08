@@ -1,7 +1,7 @@
 package bamgoo
 
 import (
-	. "github.com/bamgoo/bamgoo/base"
+	. "github.com/bamgoo/base"
 )
 
 // Mount attaches a module into the bamgoo runtime and returns a host.
