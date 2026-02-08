@@ -10,6 +10,8 @@ import (
 
 	"github.com/bamgoo/bamgoo"
 	base "github.com/bamgoo/bamgoo/base"
+	"github.com/bamgoo/bamgoo/config"
+
 	"github.com/pelletier/go-toml/v2"
 	"github.com/redis/go-redis/v9"
 )
@@ -21,13 +23,19 @@ func init() {
 }
 
 func (d *redisConfigDriver) Load(params base.Map) (base.Map, error) {
-	addr, _ := params["server"].(string)
-	if addr == "" {
-		addr = "127.0.0.1:6379"
-	}
-
+	server, _ := params["server"].(string)
+	port, _ := params["port"].(string)
 	username, _ := params["username"].(string)
 	password, _ := params["password"].(string)
+
+	addr := "127.0.0.1:6379"
+	if server != "" {
+		if port != "" {
+			addr = server + ":" + port
+		} else {
+			addr = server + ":6379"
+		}
+	}
 
 	db := 0
 	switch v := params["database"].(type) {
@@ -43,12 +51,15 @@ func (d *redisConfigDriver) Load(params base.Map) (base.Map, error) {
 		}
 	}
 
-	key, _ := params["key"].(string)
-	if key == "" {
-		return nil, errors.New("Missing redis config key")
+	key := config.KEY
+	if vv, ok := params["key"].(string); ok {
+		key = vv
 	}
 
-	format, _ := params["format"].(string)
+	format := ""
+	if vv, ok := params["format"].(string); ok {
+		format = vv
+	}
 
 	client := redis.NewClient(&redis.Options{
 		Addr:     addr,

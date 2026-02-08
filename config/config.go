@@ -13,6 +13,11 @@ import (
 
 const (
 	configEnvPrefix = "BAMGOO_"
+
+	KEY  = "bamgoo-config"
+	JSON = "json"
+	TOML = "toml"
+	YAML = "yaml"
 )
 
 var (
@@ -65,24 +70,20 @@ func (c *Module) Stop()  {}
 func (c *Module) Close() {}
 
 func (c *Module) LoadConfig() (Map, error) {
-	params, driverName, ok, err := c.Parse()
+	drvName, params, err := c.Parse()
 	if err != nil {
 		return nil, err
 	}
 
-	fmt.Println("LoadConfig", ok, driverName, params)
+	fmt.Println("LoadConfig", drvName, params)
 
-	if !ok {
-		return nil, errConfigSourceNotFound
-	}
-	if driverName == "" {
+	if drvName == "" {
 		return nil, errConfigSourceNotFound
 	}
 
-	driver, ok := c.drivers[driverName]
-	fmt.Println("ddd", ok, c.drivers)
+	driver, ok := c.drivers[drvName]
 	if !ok {
-		return nil, errors.New("Unknown config driver: " + driverName)
+		return nil, errors.New("Unknown config driver: " + drvName)
 	}
 	cfg, err := driver.Load(params)
 	fmt.Println("load", err, cfg)
@@ -90,7 +91,7 @@ func (c *Module) LoadConfig() (Map, error) {
 }
 
 // Parse reads env (BAMGOO_*) then args (--key) and returns params + driver name.
-func (c *Module) Parse() (Map, string, bool, error) {
+func (c *Module) Parse() (string, Map, error) {
 	params := Map{}
 
 	// env first
@@ -102,30 +103,17 @@ func (c *Module) Parse() (Map, string, bool, error) {
 		params[k] = v
 	}
 
-	driver := ""
-	if v, ok := params["config_driver"].(string); ok && v != "" {
+	driver := bamgoo.DEFAULT
+	if v, ok := params["driver"].(string); ok && v != "" {
 		driver = v
 	}
-	if driver == "" {
-		if v, ok := params["driver"].(string); ok && v != "" {
-			driver = v
-		}
-	}
 
 	if driver == "" {
-		file := defaultConfigFile()
-		if file == "" {
-			return nil, "", false, nil
-		}
-
-		driver = "file"
-
-		params["file"] = file
-		params["path"] = file
-		params["config"] = file
+		driver = bamgoo.DEFAULT
+		params["file"] = defaultConfigFile()
 	}
 
-	return params, driver, true, nil
+	return driver, params, nil
 }
 
 func (c *Module) parseEnv() Map {
@@ -152,9 +140,18 @@ func (c *Module) parseArgs() Map {
 	args := os.Args[1:]
 	params := Map{}
 
+	if len(args) == 1 {
+		params["driver"] = bamgoo.DEFAULT
+		params["file"] = args[0]
+		return params
+	}
+
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		if !strings.HasPrefix(arg, "--") {
+			if i == 0 {
+				params["driver"] = arg
+			}
 			continue
 		}
 		kv := strings.TrimPrefix(arg, "--")
@@ -173,6 +170,7 @@ func (c *Module) parseArgs() Map {
 			params[strings.ToLower(kv)] = "true"
 		}
 	}
+
 	return params
 }
 
@@ -189,5 +187,6 @@ func defaultConfigFile() string {
 			return file
 		}
 	}
+
 	return ""
 }
