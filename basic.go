@@ -2,9 +2,11 @@ package bamgoo
 
 import (
 	"fmt"
+	"reflect"
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	. "github.com/bamgoo/base"
 )
@@ -412,6 +414,316 @@ func (this *basicModule) typeConvert(name string) TypeConvertFunc {
 // typeConvert 获取类型的校验和值包装方法
 func (this *basicModule) typeMethod(name string) (TypeCheckFunc, TypeConvertFunc) {
 	return this.typeCheck(name), this.typeConvert(name)
+}
+
+// Mapping parses data by config and fills value.
+func (this *basicModule) Mapping(config Vars, data Map, value Map, argn bool, pass bool, zones ...*time.Location) Res {
+	timezone := time.Local
+	if len(zones) > 0 && zones[0] != nil {
+		timezone = zones[0]
+	}
+	if data == nil {
+		data = Map{}
+	}
+	if value == nil {
+		value = Map{}
+	}
+
+	for fieldName, fieldConfig := range config {
+		if fieldConfig.Nil() {
+			continue
+		}
+
+		fieldMust := fieldConfig.Required
+		fieldEmpty := fieldConfig.Nullable
+		fieldValue, fieldExist := data[fieldName]
+
+		passEmpty := false
+		passError := false
+		decoded := false
+
+		isEmpty := isEmptyValue(fieldValue)
+
+		// required and empty
+		if fieldMust && !fieldEmpty && isEmpty && fieldConfig.Default == nil && fieldConfig.Children == nil && !argn {
+			if pass {
+				passEmpty = true
+			} else {
+				if fieldConfig.Empty != nil {
+					return fieldConfig.Empty
+				}
+				return varEmpty.With(fieldNameOr(fieldConfig, fieldName))
+			}
+		} else {
+			// empty value handling
+			if isEmpty {
+				if fieldConfig.Default != nil && !argn {
+					fieldValue = normalizeDefault(fieldConfig.Default)
+
+					if fieldConfig.Type != "" || fieldConfig.Convert != nil {
+						_, fieldValueCall := this.typeMethod(fieldConfig.Type)
+						if fieldConfig.Convert != nil {
+							fieldValueCall = fieldConfig.Convert
+						}
+						if fieldValueCall != nil {
+							fieldValue = fieldValueCall(fieldValue, fieldConfig)
+						}
+					}
+				} else {
+					if fieldEmpty || argn {
+						if argn && fieldExist {
+							// keep empty to update
+						} else {
+							continue
+						}
+					}
+				}
+			} else {
+				// decode if needed
+				if fieldConfig.Decode != "" {
+					if val, err := Decrypt(fieldConfig.Decode, fieldValue); err == nil {
+						if vv, ok := val.([]byte); ok {
+							fieldValue = string(vv)
+						} else {
+							fieldValue = val
+						}
+						decoded = true
+					}
+				}
+
+				// validate + convert
+				if fieldConfig.Type != "" || fieldConfig.Check != nil || fieldConfig.Convert != nil {
+					fieldCheckCall, fieldConvertCall := this.typeMethod(fieldConfig.Type)
+					if fieldConfig.Check != nil {
+						fieldCheckCall = fieldConfig.Check
+					}
+					if fieldConfig.Convert != nil {
+						fieldConvertCall = fieldConfig.Convert
+					}
+
+					if fieldCheckCall != nil {
+						if fieldCheckCall(fieldValue, fieldConfig) {
+							if fieldConvertCall != nil {
+								fieldValue = applyTimezone(fieldValue, timezone)
+								fieldValue = fieldConvertCall(fieldValue, fieldConfig)
+							}
+						} else {
+							if pass {
+								passError = true
+							} else {
+								if fieldConfig.Error != nil {
+									return fieldConfig.Error
+								}
+								return varError.With(fieldNameOr(fieldConfig, fieldName))
+							}
+						}
+					}
+				}
+			}
+		}
+
+		// children mapping
+		if fieldConfig.Children != nil && !(fieldMust == false && isEmptyValue(fieldValue)) {
+			values, isArray := normalizeChildren(fieldValue)
+			out := make([]Map, 0, len(values))
+			for _, item := range values {
+				dst := Map{}
+				res := this.Mapping(fieldConfig.Children, item, dst, argn, pass, timezone)
+				if res != nil && res.Fail() {
+					return res
+				}
+				out = append(out, dst)
+			}
+			if isArray {
+				fieldValue = out
+			} else if len(out) > 0 {
+				fieldValue = out[0]
+			} else {
+				fieldValue = Map{}
+			}
+		}
+
+		// encode if needed
+		if fieldConfig.Encode != "" && !decoded && !passEmpty && !passError {
+			if val, err := Encrypt(fieldConfig.Encode, fieldValue); err == nil {
+				fieldValue = val
+			}
+		}
+
+		value[fieldName] = fieldValue
+	}
+
+	return OK
+}
+
+func isEmptyValue(v Any) bool {
+	if v == nil {
+		return true
+	}
+	switch vv := v.(type) {
+	case string:
+		return vv == ""
+	case Map:
+		return len(vv) == 0
+	case []Map:
+		return len(vv) == 0
+	}
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.Map, reflect.Slice, reflect.Array:
+		return rv.Len() == 0
+	}
+	return false
+}
+
+func fieldNameOr(v Var, fallback string) string {
+	if v.Name != "" {
+		return v.Name
+	}
+	return fallback
+}
+
+func normalizeDefault(v Any) Any {
+	switch vv := v.(type) {
+	case func() Any:
+		return vv()
+	case func() time.Time:
+		return vv()
+	case func() string:
+		return vv()
+	case func() int:
+		return int64(vv())
+	case func() int8:
+		return int64(vv())
+	case func() int16:
+		return int64(vv())
+	case func() int32:
+		return int64(vv())
+	case func() int64:
+		return vv()
+	case func() uint:
+		return uint64(vv())
+	case func() uint8:
+		return uint64(vv())
+	case func() uint16:
+		return uint64(vv())
+	case func() uint32:
+		return uint64(vv())
+	case func() uint64:
+		return vv()
+	case func() float32:
+		return float64(vv())
+	case func() float64:
+		return vv()
+	case int:
+		return int64(vv)
+	case int8:
+		return int64(vv)
+	case int16:
+		return int64(vv)
+	case int32:
+		return int64(vv)
+	case uint:
+		return uint64(vv)
+	case uint8:
+		return uint64(vv)
+	case uint16:
+		return uint64(vv)
+	case uint32:
+		return uint64(vv)
+	case float32:
+		return float64(vv)
+	case []int:
+		out := make([]int64, 0, len(vv))
+		for _, n := range vv {
+			out = append(out, int64(n))
+		}
+		return out
+	case []int8:
+		out := make([]int64, 0, len(vv))
+		for _, n := range vv {
+			out = append(out, int64(n))
+		}
+		return out
+	case []int16:
+		out := make([]int64, 0, len(vv))
+		for _, n := range vv {
+			out = append(out, int64(n))
+		}
+		return out
+	case []int32:
+		out := make([]int64, 0, len(vv))
+		for _, n := range vv {
+			out = append(out, int64(n))
+		}
+		return out
+	case []int64:
+		return vv
+	case []uint:
+		out := make([]uint64, 0, len(vv))
+		for _, n := range vv {
+			out = append(out, uint64(n))
+		}
+		return out
+	case []uint8:
+		out := make([]uint64, 0, len(vv))
+		for _, n := range vv {
+			out = append(out, uint64(n))
+		}
+		return out
+	case []uint16:
+		out := make([]uint64, 0, len(vv))
+		for _, n := range vv {
+			out = append(out, uint64(n))
+		}
+		return out
+	case []uint32:
+		out := make([]uint64, 0, len(vv))
+		for _, n := range vv {
+			out = append(out, uint64(n))
+		}
+		return out
+	case []uint64:
+		return vv
+	case []float32:
+		out := make([]float64, 0, len(vv))
+		for _, n := range vv {
+			out = append(out, float64(n))
+		}
+		return out
+	default:
+		return v
+	}
+}
+
+func normalizeChildren(v Any) ([]Map, bool) {
+	switch vv := v.(type) {
+	case Map:
+		return []Map{vv}, false
+	case []Map:
+		return vv, true
+	default:
+		return []Map{}, false
+	}
+}
+
+func applyTimezone(value Any, tz *time.Location) Any {
+	switch vv := value.(type) {
+	case time.Time:
+		return vv.In(tz)
+	case []time.Time:
+		out := make([]time.Time, 0, len(vv))
+		for _, t := range vv {
+			out = append(out, t.In(tz))
+		}
+		return out
+	}
+	return value
+}
+
+// Mapping is a convenience wrapper.
+func Mapping(config Vars, data Map, value Map, argn bool, pass bool, zones ...*time.Location) Res {
+	return basic.Mapping(config, data, value, argn, pass, zones...)
 }
 
 // StateCode 返回状态码
