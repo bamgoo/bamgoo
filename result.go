@@ -12,6 +12,8 @@ var (
 	Fail    = Result(1, "fail", "失败")
 	Retry   = Result(2, "retry", "重试")
 	Invalid = Result(3, "invalid", "无效请求或数据")
+	Unsigned = Result(5, "unsigned", "无权访问")
+	Unauthed = Result(6, "unauthed", "无权访问")
 
 	varEmpty = Result(7, "varempty", "%s不可为空")
 	varError = Result(8, "varerror", "%s无效")
