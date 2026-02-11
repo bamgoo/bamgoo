@@ -39,9 +39,111 @@ func (h *defaultBusHook) Stats() []ServiceStats {
 }
 
 func (h *defaultConfigHook) LoadConfig() (base.Map, error) {
-	file := configFileFromEnv()
-	if file == "" {
-		file = configFileFromArgs(os.Args[1:])
+	drvName, params, err := parseConfigParams()
+	if err != nil {
+		return nil, err
+	}
+	if drvName == "" {
+		return nil, nil
+	}
+	if drvName != DEFAULT && drvName != "file" {
+		return nil, errors.New("Unknown config driver: " + drvName)
+	}
+	return loadConfigFromFile(params)
+}
+
+func parseConfigParams() (string, base.Map, error) {
+	params := base.Map{}
+	for k, v := range parseConfigEnv() {
+		params[k] = v
+	}
+	for k, v := range parseConfigArgs() {
+		params[k] = v
+	}
+
+	driver := DEFAULT
+	if v, ok := params["driver"].(string); ok && v != "" {
+		driver = v
+	}
+	if driver == "" {
+		driver = DEFAULT
+	}
+	if driver == DEFAULT || driver == "file" {
+		if _, ok := params["file"]; !ok {
+			if file := defaultConfigFile(); file != "" {
+				params["file"] = file
+			}
+		}
+	}
+	return driver, params, nil
+}
+
+func parseConfigEnv() base.Map {
+	envs := os.Environ()
+	params := base.Map{}
+	for _, kv := range envs {
+		parts := strings.SplitN(kv, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key := parts[0]
+		val := parts[1]
+		if !strings.HasPrefix(key, "BAMGOO_") {
+			continue
+		}
+		k := strings.ToLower(strings.TrimPrefix(key, "BAMGOO_"))
+		params[k] = val
+	}
+	return params
+}
+
+func parseConfigArgs() base.Map {
+	args := os.Args[1:]
+	params := base.Map{}
+
+	if len(args) == 1 {
+		params["driver"] = DEFAULT
+		params["file"] = args[0]
+		return params
+	}
+
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if !strings.HasPrefix(arg, "--") {
+			if i == 0 {
+				params["driver"] = arg
+			}
+			continue
+		}
+		kv := strings.TrimPrefix(arg, "--")
+		if kv == "" {
+			continue
+		}
+		if strings.Contains(kv, "=") {
+			parts := strings.SplitN(kv, "=", 2)
+			params[strings.ToLower(parts[0])] = parts[1]
+			continue
+		}
+		if i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") {
+			params[strings.ToLower(kv)] = args[i+1]
+			i++
+		} else {
+			params[strings.ToLower(kv)] = "true"
+		}
+	}
+	return params
+}
+
+func loadConfigFromFile(params base.Map) (base.Map, error) {
+	file := ""
+	if vv, ok := params["file"].(string); ok {
+		file = vv
+	}
+	if vv, ok := params["path"].(string); ok {
+		file = vv
+	}
+	if vv, ok := params["config"].(string); ok {
+		file = vv
 	}
 	if file == "" {
 		file = defaultConfigFile()
@@ -49,58 +151,25 @@ func (h *defaultConfigHook) LoadConfig() (base.Map, error) {
 	if file == "" {
 		return nil, nil
 	}
+
 	data, err := os.ReadFile(file)
 	if err != nil {
 		return nil, err
 	}
-	format := detectConfigFormat(file, data)
+	format, _ := params["format"].(string)
 	if format == "" {
-		return nil, errors.New("Unknown config format")
+		ext := strings.ToLower(filepath.Ext(file))
+		switch ext {
+		case ".json":
+			format = "json"
+		case ".toml", ".tml":
+			format = "toml"
+		}
+	}
+	if format == "" {
+		format = detectConfigFormat(data)
 	}
 	return decodeConfig(data, format)
-}
-
-func configFileFromEnv() string {
-	if v := os.Getenv("BAMGOO_CONFIG_FILE"); v != "" {
-		return v
-	}
-	if v := os.Getenv("BAMGOO_CONFIG_PATH"); v != "" {
-		return v
-	}
-	if v := os.Getenv("BAMGOO_CONFIG"); v != "" {
-		return v
-	}
-	return ""
-}
-
-func configFileFromArgs(args []string) string {
-	for i := 0; i < len(args); i++ {
-		arg := args[i]
-		if !strings.HasPrefix(arg, "--") {
-			continue
-		}
-		kv := strings.TrimPrefix(arg, "--")
-		if kv == "" {
-			continue
-		}
-		key := ""
-		val := ""
-		if strings.Contains(kv, "=") {
-			parts := strings.SplitN(kv, "=", 2)
-			key = strings.ToLower(parts[0])
-			val = parts[1]
-		} else if i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") {
-			key = strings.ToLower(kv)
-			val = args[i+1]
-			i++
-		}
-		if key == "config" || key == "config_file" || key == "config_path" || key == "file" || key == "path" {
-			if val != "" {
-				return val
-			}
-		}
-	}
-	return ""
 }
 
 func defaultConfigFile() string {
@@ -117,15 +186,7 @@ func defaultConfigFile() string {
 	return ""
 }
 
-func detectConfigFormat(file string, data []byte) string {
-	if ext := strings.ToLower(filepath.Ext(file)); ext != "" {
-		switch ext {
-		case ".json":
-			return "json"
-		case ".toml", ".tml":
-			return "toml"
-		}
-	}
+func detectConfigFormat(data []byte) string {
 	str := strings.TrimSpace(string(data))
 	if strings.HasPrefix(str, "{") || strings.HasPrefix(str, "[") {
 		return "json"
