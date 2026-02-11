@@ -1,6 +1,7 @@
 package bamgoo
 
 import (
+	"fmt"
 	"os"
 	"os/signal"
 	"slices"
@@ -126,9 +127,10 @@ func (c *bamgooRuntime) Load() {
 
 	//从配置模块加载配置
 	cfg, err := hook.LoadConfig()
-	if err == nil {
-		c.Config(cfg)
+	if err != nil {
+		panic(fmt.Errorf("load config failed: %w", err))
 	}
+	c.Config(cfg)
 
 	c.loadStatus = true
 }
