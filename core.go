@@ -34,7 +34,8 @@ type (
 	}
 )
 type (
-	Method struct {
+	Methods map[string]Method
+	Method  struct {
 		Name     string
 		Desc     string
 		Nullable bool
@@ -42,7 +43,8 @@ type (
 		Action   func(*Context) (Map, Res)
 		Setting  Map
 	}
-	Service struct {
+	Services map[string]Service
+	Service  struct {
 		Name     string
 		Desc     string
 		Nullable bool
@@ -58,6 +60,30 @@ func (e *coreModule) Register(name string, value Any) {
 		e.RegisterMethod(name, v)
 	case Service:
 		e.RegisterService(name, v)
+	case Methods:
+		e.RegisterMethods(name, v)
+	case Services:
+		e.RegisterServices(name, v)
+	}
+}
+
+func (e *coreModule) RegisterMethods(prefix string, methods Methods) {
+	for key, method := range methods {
+		name := key
+		if prefix != "" {
+			name = prefix + "." + key
+		}
+		e.RegisterMethod(name, method)
+	}
+}
+
+func (e *coreModule) RegisterServices(prefix string, services Services) {
+	for key, service := range services {
+		name := key
+		if prefix != "" {
+			name = prefix + "." + key
+		}
+		e.RegisterService(name, service)
 	}
 }
 
@@ -121,8 +147,8 @@ func (e *coreModule) Wait() {
 }
 
 // Invoke calls a method/service (local first, then remote via bus).
-func (e *coreModule) Invoke(meta *Meta, name string, value Map) (Map, Res) {
-	if data, res, ok := e.invokeLocal(meta, name, value); ok {
+func (e *coreModule) Invoke(meta *Meta, name string, value Map, settings ...Map) (Map, Res) {
+	if data, res, ok := e.invokeLocal(meta, name, value, settings...); ok {
 		return data, res
 	}
 	return e.invokeRemote(meta, name, value)
@@ -130,7 +156,7 @@ func (e *coreModule) Invoke(meta *Meta, name string, value Map) (Map, Res) {
 
 // localInvoke only calls local method/service, does not go through bus.
 // Returns (data, res, found) where found indicates if local entry exists.
-func (e *coreModule) invokeLocal(meta *Meta, name string, value Map) (Map, Res, bool) {
+func (e *coreModule) invokeLocal(meta *Meta, name string, value Map, settings ...Map) (Map, Res, bool) {
 	e.mutex.RLock()
 	entry, ok := e.entries[name]
 	e.mutex.RUnlock()
@@ -151,6 +177,14 @@ func (e *coreModule) invokeLocal(meta *Meta, name string, value Map) (Map, Res, 
 	}
 	for k, v := range entry.Setting {
 		ctx.Setting[k] = v
+	}
+	for _, setting := range settings {
+		if setting == nil {
+			continue
+		}
+		for k, v := range setting {
+			ctx.Setting[k] = v
+		}
 	}
 	data, res := entry.Action(ctx)
 	return data, res, true
