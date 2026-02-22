@@ -88,11 +88,6 @@ func (m *libraryModule) Start() {}
 func (m *libraryModule) Stop()  {}
 func (m *libraryModule) Close() {}
 
-// RegisterLibrary registers methods under one prefix.
-func RegisterLibrary(prefix string, def Library) {
-	library.RegisterLibrary(prefix, def)
-}
-
 func (m *Meta) Library(name string, settings ...Map) *libraryInvoker {
 	name = normalizeLibraryName(name)
 
